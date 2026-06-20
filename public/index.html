@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhotoVault • Local</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="logo">
+                <i class="fas fa-images"></i>
+                <span>PhotoVault</span>
+            </div>
+            <nav>
+                <a href="#" onclick="showAllFolders()" class="nav-item active">
+                    <i class="fas fa-folder"></i>
+                    <span>All Folders</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <small>Local • Secure • Private</small>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Top Bar -->
+            <header class="top-bar">
+                <div class="search-container">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-input" placeholder="Search folders or images..." onkeyup="handleSearch(event)">
+                </div>
+                <div class="header-actions">
+                    <button onclick="showCreateFolderModal()" class="btn-primary">
+                        <i class="fas fa-plus"></i> New Folder
+                    </button>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content" id="content-area">
+                <!-- Folders View -->
+                <div id="folders-view">
+                    <h1 class="view-title">All Folders</h1>
+                    <div class="grid" id="folders-grid"></div>
+                </div>
+
+                <!-- Folder Detail View -->
+                <div id="folder-detail-view" class="hidden">
+                    <div class="folder-header">
+                        <button onclick="goBackToFolders()" class="btn-back">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h1 id="current-folder-name"></h1>
+                        
+                        <div class="folder-actions">
+                            <button onclick="triggerUpload()" class="btn-primary">
+                                <i class="fas fa-upload"></i> Upload Images
+                            </button>
+                            <button onclick="downloadCurrentFolder()" class="btn-secondary">
+                                <i class="fas fa-download"></i> Download ZIP
+                            </button>
+                            <button onclick="deleteCurrentFolder()" class="btn-danger">
+                                <i class="fas fa-trash"></i> Delete Folder
+                            </button>
+                        </div>
+                    </div>
+
+                    <input type="file" id="file-input" multiple accept="image/*" style="display:none">
+                    
+                    <div class="upload-progress hidden" id="upload-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        <span id="progress-text">Uploading 0%</span>
+                    </div>
+
+                    <div class="grid" id="images-grid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Folder Modal -->
+    <div id="create-folder-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Create New Folder</h2>
+            <input type="text" id="folder-name-input" placeholder="Folder name" maxlength="50">
+            <div class="modal-actions">
+                <button onclick="closeModal()" class="btn-secondary">Cancel</button>
+                <button onclick="createFolder()" class="btn-primary">Create Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>

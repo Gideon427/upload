@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Database & Uploads
+database.sqlite
+uploads/
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
