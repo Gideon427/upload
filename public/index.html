@@ -3,22 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhotoVault • Local</title>
+    <title>Upload • Local Vault</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        /* Additional search styles */
+        .search-results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 24px;
+            margin-top: 20px;
+        }
+
+        .search-result-card {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+
+        .search-result-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            border-color: #e2e8f0;
+        }
+
+        .search-result-card .thumbnail {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            object-fit: cover;
+            background: #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            color: #94a3b8;
+        }
+
+        .search-result-card .thumbnail img,
+        .search-result-card .thumbnail video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .search-result-card .thumbnail .file-icon {
+            font-size: 64px;
+            opacity: 0.3;
+        }
+
+        .search-result-card .info {
+            padding: 12px 16px;
+        }
+
+        .search-result-card .info .name {
+            font-weight: 600;
+            font-size: 14px;
+            color: #0f172a;
+            word-break: break-word;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .search-result-card .info .name .highlight {
+            background: #fef08a;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        .search-result-card .info .meta {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 4px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .search-result-card .info .meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .search-result-card .badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 500;
+            z-index: 5;
+        }
+
+        .search-result-card .folder-badge {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .search-result-card .image-badge {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .search-result-card .audio-badge {
+            background: #fce7f3;
+            color: #9d174d;
+        }
+
+        .search-result-card .video-badge {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .search-result-card .other-badge {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .search-result-card .folder-thumbnail {
+            background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 64px;
+        }
+
+        .search-result-card {
+            position: relative;
+        }
+
+        .search-result-card .folder-info {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .search-result-card .folder-info .folder-icon {
+            font-size: 64px;
+            margin-bottom: 8px;
+        }
+
+        .search-result-card .folder-info .folder-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .search-result-card .folder-info .folder-meta {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+    </style>
 </head>
 <body>
     <div class="app">
         <!-- Sidebar -->
         <div class="sidebar">
             <div class="logo">
-                <i class="fas fa-images"></i>
-                <span>PhotoVault</span>
+                <i class="fas fa-upload"></i>
+                <span>Upload</span>
             </div>
             <nav>
-                <a href="#" onclick="showAllFolders()" class="nav-item active">
+                <a href="#" onclick="showAllFolders()" class="nav-item active" id="nav-folders">
                     <i class="fas fa-folder"></i>
                     <span>All Folders</span>
+                </a>
+                <a href="#" onclick="showSearchPage()" class="nav-item" id="nav-search">
+                    <i class="fas fa-search"></i>
+                    <span>Search</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -28,11 +186,10 @@
 
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Top Bar -->
             <header class="top-bar">
                 <div class="search-container">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="search-input" placeholder="Search folders or images..." onkeyup="handleSearch(event)">
+                    <input type="text" id="search-input" placeholder="Search files..." onkeyup="handleSearch(event)">
                 </div>
                 <div class="header-actions">
                     <button onclick="showCreateFolderModal()" class="btn-primary">
@@ -41,8 +198,7 @@
                 </div>
             </header>
 
-            <!-- Content Area -->
-            <div class="content" id="content-area">
+            <div class="content">
                 <!-- Folders View -->
                 <div id="folders-view">
                     <h1 class="view-title">All Folders</h1>
@@ -59,7 +215,10 @@
                         
                         <div class="folder-actions">
                             <button onclick="triggerUpload()" class="btn-primary">
-                                <i class="fas fa-upload"></i> Upload Images
+                                <i class="fas fa-upload"></i> Upload Files
+                            </button>
+                            <button onclick="startRecording()" class="btn-record" id="record-btn">
+                                <i class="fas fa-microphone"></i> Record Voice
                             </button>
                             <button onclick="downloadCurrentFolder()" class="btn-secondary">
                                 <i class="fas fa-download"></i> Download ZIP
@@ -70,16 +229,68 @@
                         </div>
                     </div>
 
-                    <input type="file" id="file-input" multiple accept="image/*" style="display:none">
+                    <input type="file" id="file-input" multiple accept="image/*,audio/*,video/*" style="display:none">
                     
                     <div class="upload-progress hidden" id="upload-progress">
                         <div class="progress-bar">
                             <div class="progress-fill" id="progress-fill"></div>
                         </div>
-                        <span id="progress-text">Uploading 0%</span>
+                        <span id="progress-text">Uploading...</span>
                     </div>
 
-                    <div class="grid" id="images-grid"></div>
+                    <div class="grid" id="files-grid"></div>
+                </div>
+
+                <!-- Search View -->
+                <div id="search-view" class="hidden">
+                    <div class="search-header">
+                        <h1>
+                            <i class="fas fa-search" style="color: #4f46e5;"></i>
+                            Search Files & Folders
+                        </h1>
+                        <p>Find your files quickly by name or type</p>
+
+                        <div class="search-input-wrapper">
+                            <i class="fas fa-search"></i>
+                            <input 
+                                type="text" 
+                                id="search-input-main" 
+                                placeholder="Type to search..."
+                                oninput="performSearch()"
+                                autofocus
+                            >
+                            <span class="clear-btn" id="clear-search" onclick="clearSearch()">
+                                <i class="fas fa-times-circle"></i>
+                            </span>
+                        </div>
+
+                        <div class="search-filters">
+                            <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">
+                                All <span class="count" id="count-all">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="folders" onclick="setFilter('folders')">
+                                <i class="fas fa-folder"></i> Folders <span class="count" id="count-folders">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="image" onclick="setFilter('image')">
+                                <i class="fas fa-image"></i> Images <span class="count" id="count-image">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="audio" onclick="setFilter('audio')">
+                                <i class="fas fa-music"></i> Audio <span class="count" id="count-audio">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="video" onclick="setFilter('video')">
+                                <i class="fas fa-video"></i> Video <span class="count" id="count-video">0</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="search-stats">
+                        <span id="results-info">Found <strong>0</strong> results</span>
+                        <span id="search-time"></span>
+                    </div>
+
+                    <div class="search-results-grid" id="search-results">
+                        <!-- Results will be rendered here -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -97,7 +308,6 @@
         </div>
     </div>
 
-    <!-- Toast -->
     <div id="toast" class="toast hidden"></div>
 
     <script src="script.js"></script>

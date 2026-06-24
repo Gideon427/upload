@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search • Local Vault</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        /* Search-specific styles */
+        .search-page {
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .search-header {
+            margin-bottom: 30px;
+        }
+
+        .search-header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .search-header p {
+            color: #64748b;
+            margin-bottom: 20px;
+        }
+
+        .search-input-wrapper {
+            position: relative;
+            max-width: 600px;
+        }
+
+        .search-input-wrapper i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+        }
+
+        .search-input-wrapper input {
+            width: 100%;
+            padding: 14px 20px 14px 48px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s;
+            background: white;
+        }
+
+        .search-input-wrapper input:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+        }
+
+        .search-input-wrapper .clear-btn {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+            cursor: pointer;
+            display: none;
+            padding: 4px;
+        }
+
+        .search-input-wrapper .clear-btn.visible {
+            display: block;
+        }
+
+        .search-input-wrapper .clear-btn:hover {
+            color: #ef4444;
+        }
+
+        .search-filters {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            border-radius: 9999px;
+            border: 1px solid #e2e8f0;
+            background: white;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .filter-btn:hover {
+            border-color: #4f46e5;
+            color: #4f46e5;
+        }
+
+        .filter-btn.active {
+            background: #4f46e5;
+            border-color: #4f46e5;
+            color: white;
+        }
+
+        .filter-btn .count {
+            background: rgba(255,255,255,0.2);
+            padding: 1px 8px;
+            border-radius: 9999px;
+            font-size: 12px;
+            margin-left: 4px;
+        }
+
+        .filter-btn.active .count {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .search-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 20px;
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .search-stats strong {
+            color: #0f172a;
+        }
+
+        .search-results {
+            min-height: 200px;
+        }
+
+        .result-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            transition: all 0.2s;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+
+        .result-item:hover {
+            transform: translateX(4px);
+            border-color: #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .result-icon {
+            font-size: 32px;
+            min-width: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .result-info {
+            flex: 1;
+        }
+
+        .result-info .name {
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .result-info .meta {
+            font-size: 13px;
+            color: #94a3b8;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 2px;
+        }
+
+        .result-info .meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .result-badge {
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-folder {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .badge-image {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge-audio {
+            background: #fce7f3;
+            color: #9d174d;
+        }
+
+        .badge-video {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-other {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .result-actions button {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: none;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-open {
+            background: #4f46e5;
+            color: white;
+        }
+
+        .btn-open:hover {
+            background: #4338ca;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: #94a3b8;
+        }
+
+        .no-results i {
+            font-size: 64px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        .no-results h3 {
+            color: #475569;
+            margin-bottom: 8px;
+        }
+
+        .search-tip {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 8px;
+        }
+
+        .highlight {
+            background: #fef08a;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .search-page {
+                padding: 12px;
+            }
+
+            .search-header h1 {
+                font-size: 22px;
+            }
+
+            .result-item {
+                flex-wrap: wrap;
+                padding: 12px;
+            }
+
+            .result-actions {
+                width: 100%;
+                justify-content: flex-end;
+            }
+
+            .search-stats {
+                flex-direction: column;
+                gap: 8px;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="logo">
+                <i class="fas fa-search"></i>
+                <span>Search</span>
+            </div>
+            <nav>
+                <a href="#" onclick="showAllFolders()" class="nav-item">
+                    <i class="fas fa-folder"></i>
+                    <span>All Folders</span>
+                </a>
+                <a href="#" onclick="showSearch()" class="nav-item active">
+                    <i class="fas fa-search"></i>
+                    <span>Search</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <small>Local • Secure • Private</small>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <header class="top-bar">
+                <div class="search-container">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="global-search" placeholder="Search everything..." onkeyup="handleGlobalSearch(event)">
+                </div>
+                <div class="header-actions">
+                    <button onclick="showAllFolders()" class="btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </button>
+                </div>
+            </header>
+
+            <div class="content">
+                <div class="search-page">
+                    <div class="search-header">
+                        <h1>
+                            <i class="fas fa-search" style="color: #4f46e5;"></i>
+                            Search Files & Folders
+                        </h1>
+                        <p>Find your files quickly by name, type, or content</p>
+
+                        <div class="search-input-wrapper">
+                            <i class="fas fa-search"></i>
+                            <input 
+                                type="text" 
+                                id="search-input" 
+                                placeholder="Type to search..."
+                                oninput="performSearch()"
+                                autofocus
+                            >
+                            <span class="clear-btn" id="clear-search" onclick="clearSearch()">
+                                <i class="fas fa-times-circle"></i>
+                            </span>
+                        </div>
+
+                        <div class="search-filters" id="filter-buttons">
+                            <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">
+                                All <span class="count" id="count-all">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="folders" onclick="setFilter('folders')">
+                                <i class="fas fa-folder"></i> Folders <span class="count" id="count-folders">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="images" onclick="setFilter('images')">
+                                <i class="fas fa-image"></i> Images <span class="count" id="count-images">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="audio" onclick="setFilter('audio')">
+                                <i class="fas fa-music"></i> Audio <span class="count" id="count-audio">0</span>
+                            </button>
+                            <button class="filter-btn" data-filter="video" onclick="setFilter('video')">
+                                <i class="fas fa-video"></i> Video <span class="count" id="count-video">0</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="search-stats">
+                        <span id="results-info">Found <strong>0</strong> results</span>
+                        <span id="search-time"></span>
+                    </div>
+
+                    <div class="search-results" id="search-results">
+                        <!-- Results will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script>
+        // Sample data - Replace with your actual data from your app
+        const sampleData = {
+            folders: [
+                { id: 1, name: 'Family Photos', type: 'folder', itemCount: 12, date: '2024-01-15' },
+                { id: 2, name: 'Work Documents', type: 'folder', itemCount: 8, date: '2024-02-20' },
+                { id: 3, name: 'Music Collection', type: 'folder', itemCount: 25, date: '2024-03-10' },
+                { id: 4, name: 'Vacation Videos', type: 'folder', itemCount: 6, date: '2024-04-05' },
+            ],
+            files: [
+                { id: 101, name: 'sunset_beach.jpg', type: 'image', size: '2.4 MB', date: '2024-01-20', folder: 'Family Photos' },
+                { id: 102, name: 'family_dinner.jpg', type: 'image', size: '3.1 MB', date: '2024-01-22', folder: 'Family Photos' },
+                { id: 103, name: 'mountain_hike.jpg', type: 'image', size: '4.2 MB', date: '2024-02-01', folder: 'Family Photos' },
+                { id: 104, name: 'project_presentation.pptx', type: 'other', size: '5.8 MB', date: '2024-02-25', folder: 'Work Documents' },
+                { id: 105, name: 'budget_2024.xlsx', type: 'other', size: '1.2 MB', date: '2024-03-01', folder: 'Work Documents' },
+                { id: 106, name: 'meeting_notes.pdf', type: 'other', size: '0.8 MB', date: '2024-03-05', folder: 'Work Documents' },
+                { id: 107, name: 'summer_playlist.mp3', type: 'audio', size: '8.4 MB', date: '2024-03-15', folder: 'Music Collection' },
+                { id: 108, name: 'podcast_episode.mp3', type: 'audio', size: '25.6 MB', date: '2024-03-18', folder: 'Music Collection' },
+                { id: 109, name: 'chill_mix.mp3', type: 'audio', size: '12.3 MB', date: '2024-03-20', folder: 'Music Collection' },
+                { id: 110, name: 'paris_vacation.mp4', type: 'video', size: '156 MB', date: '2024-04-10', folder: 'Vacation Videos' },
+                { id: 111, name: 'beach_day.mp4', type: 'video', size: '89 MB', date: '2024-04-12', folder: 'Vacation Videos' },
+            ]
+        };
+
+        let allItems = [];
+        let currentFilter = 'all';
+        let searchTerm = '';
+
+        // Initialize with sample data
+        function initializeData() {
+            // Combine folders and files into one searchable array
+            const folders = sampleData.folders.map(f => ({
+                ...f,
+                displayType: 'folder',
+                icon: 'fa-folder',
+                badge: 'Folder',
+                badgeClass: 'badge-folder'
+            }));
+
+            const files = sampleData.files.map(f => ({
+                ...f,
+                displayType: f.type,
+                icon: getIconForType(f.type),
+                badge: f.type.charAt(0).toUpperCase() + f.type.slice(1),
+                badgeClass: getBadgeClass(f.type)
+            }));
+
+            allItems = [...folders, ...files];
+            updateCounts();
+        }
+
+        function getIconForType(type) {
+            const icons = {
+                image: 'fa-image',
+                audio: 'fa-music',
+                video: 'fa-video',
+                folder: 'fa-folder',
+                other: 'fa-file'
+            };
+            return icons[type] || 'fa-file';
+        }
+
+        function getBadgeClass(type) {
+            const classes = {
+                folder: 'badge-folder',
+                image: 'badge-image',
+                audio: 'badge-audio',
+                video: 'badge-video',
+                other: 'badge-other'
+            };
+            return classes[type] || 'badge-other';
+        }
+
+        function performSearch() {
+            const input = document.getElementById('search-input');
+            searchTerm = input.value.trim();
+            
+            // Show/hide clear button
+            const clearBtn = document.getElementById('clear-search');
+            if (searchTerm.length > 0) {
+                clearBtn.classList.add('visible');
+            } else {
+                clearBtn.classList.remove('visible');
+            }
+
+            const results = filterItems();
+            renderResults(results);
+            updateStats(results.length);
+            updateCounts();
+        }
+
+        function filterItems() {
+            let filtered = allItems;
+
+            // Apply search filter
+            if (searchTerm) {
+                const term = searchTerm.toLowerCase();
+                filtered = filtered.filter(item => 
+                    item.name.toLowerCase().includes(term) ||
+                    (item.folder && item.folder.toLowerCase().includes(term))
+                );
+            }
+
+            // Apply type filter
+            if (currentFilter !== 'all') {
+                filtered = filtered.filter(item => {
+                    if (currentFilter === 'folders') return item.displayType === 'folder';
+                    return item.displayType === currentFilter;
+                });
+            }
+
+            return filtered;
+        }
+
+        function renderResults(results) {
+            const container = document.getElementById('search-results');
+            
+            if (results.length === 0) {
+                container.innerHTML = `
+                    <div class="no-results">
+                        <i class="fas fa-search"></i>
+                        <h3>No results found</h3>
+                        <p>Try adjusting your search terms or filters</p>
+                        <div class="search-tip">
+                            <i class="fas fa-lightbulb"></i> Tip: Try searching by file type (e.g., "image", "audio")
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = results.map(item => `
+                <div class="result-item" onclick="openItem('${item.id}')">
+                    <div class="result-icon">
+                        <i class="fas ${item.icon}" style="color: ${getIconColor(item.displayType)}"></i>
+                    </div>
+                    <div class="result-info">
+                        <div class="name">${highlightMatch(item.name)}</div>
+                        <div class="meta">
+                            <span><i class="fas fa-tag"></i> ${item.folder || 'Root'}</span>
+                            ${item.size ? `<span><i class="fas fa-weight-hanging"></i> ${item.size}</span>` : ''}
+                            <span><i class="fas fa-calendar"></i> ${item.date}</span>
+                            ${item.itemCount ? `<span><i class="fas fa-cubes"></i> ${item.itemCount} items</span>` : ''}
+                        </div>
+                    </div>
+                    <span class="result-badge ${item.badgeClass}">${item.badge}</span>
+                    <div class="result-actions">
+                        <button class="btn-open" onclick="event.stopPropagation(); openItem('${item.id}')">
+                            <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function highlightMatch(text) {
+            if (!searchTerm) return text;
+            const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+            return text.replace(regex, '<span class="highlight">$1</span>');
+        }
+
+        function getIconColor(type) {
+            const colors = {
+                folder: '#4f46e5',
+                image: '#059669',
+                audio: '#db2777',
+                video: '#d97706',
+                other: '#64748b'
+            };
+            return colors[type] || '#64748b';
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            
+            // Update button states
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
+            });
+
+            performSearch();
+        }
+
+        function updateCounts() {
+            const counts = {
+                all: allItems.length,
+                folders: allItems.filter(i => i.displayType === 'folder').length,
+                images: allItems.filter(i => i.displayType === 'image').length,
+                audio: allItems.filter(i => i.displayType === 'audio').length,
+                video: allItems.filter(i => i.displayType === 'video').length,
+            };
+
+            Object.keys(counts).forEach(key => {
+                const el = document.getElementById(`count-${key}`);
+                if (el) el.textContent = counts[key];
+            });
+        }
+
+        function updateStats(count) {
+            document.getElementById('results-info').innerHTML = `Found <strong>${count}</strong> results`;
+            document.getElementById('search-time').textContent = `⏱ ${new Date().toLocaleTimeString()}`;
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('clear-search').classList.remove('visible');
+            performSearch();
+            document.getElementById('search-input').focus();
+        }
+
+        function openItem(id) {
+            const item = allItems.find(i => i.id == id);
+            if (item) {
+                showToast(`Opening: ${item.name}`, 'success');
+                console.log('Open item:', item);
+            }
+        }
+
+        // Toast notification
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} visible`;
+            clearTimeout(toast._timeout);
+            toast._timeout = setTimeout(() => {
+                toast.classList.remove('visible');
+            }, 3000);
+        }
+
+        // Placeholder functions for navigation
+        function showAllFolders() {
+            showToast('Navigating to All Folders', 'info');
+        }
+
+        function showSearch() {
+            // Already on search page
+        }
+
+        function handleGlobalSearch(e) {
+            // Quick search from top bar
+            const term = e.target.value;
+            if (term) {
+                document.getElementById('search-input').value = term;
+                performSearch();
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeData();
+            performSearch();
+
+            // Keyboard shortcut: Ctrl+K or Cmd+K to focus search
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                    e.preventDefault();
+                    document.getElementById('search-input').focus();
+                }
+                // Escape to clear search
+                if (e.key === 'Escape') {
+                    clearSearch();
+                    document.getElementById('search-input').blur();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,6 +1,12 @@
-// public/script.js - Inline Rename (Best Version)
+// public/script.js - COMPLETE & FIXED with Search
 let currentFolderId = null;
 let currentFolderName = '';
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let searchableItems = [];
+let currentFilter = 'all';
+let searchTerm = '';
 
 // ==================== HELPERS ====================
 function showToast(message, isError = false) {
@@ -8,16 +14,25 @@ function showToast(message, isError = false) {
     toast.textContent = message;
     toast.style.background = isError ? '#ef4444' : '#1e2937';
     toast.style.display = 'flex';
-    setTimeout(() => toast.style.display = 'none', 3000);
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => toast.style.display = 'none', 3000);
 }
 
 function escapeHtml(unsafe) {
+    if (!unsafe) return '';
     return unsafe
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function formatFileSize(bytes) {
+    if (!bytes) return '0 B';
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
 }
 
 // API Helper
@@ -27,15 +42,385 @@ async function apiRequest(url, options = {}) {
             headers: { 'Content-Type': 'application/json' },
             ...options
         });
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || 'Request failed');
-        }
+        if (!response.ok) throw new Error(await response.text());
         return response.json();
     } catch (err) {
         showToast(err.message, true);
         throw err;
     }
+}
+
+// ==================== SEARCH FUNCTIONS ====================
+async function initSearch() {
+    try {
+        const folders = await apiRequest('/api/folders');
+        let allFiles = [];
+        for (const folder of folders) {
+            const files = await apiRequest(`/api/folders/${folder.id}/files`);
+            allFiles = allFiles.concat(files.map(f => ({ ...f, folderName: folder.name, folderId: folder.id })));
+        }
+        
+        const folderItems = folders.map(f => ({
+            id: f.id,
+            name: f.name,
+            displayType: 'folder',
+            icon: 'fa-folder',
+            badge: 'Folder',
+            badgeClass: 'folder-badge',
+            searchableText: f.name,
+            file_count: f.file_count || 0,
+            created_at: f.created_at,
+            isFolder: true,
+            file_path: null,
+            mime_type: null
+        }));
+
+        const fileItems = allFiles.map(f => ({
+            id: f.id,
+            name: f.filename,
+            displayType: getFileType(f.mime_type || f.type),
+            icon: getIconForType(f.mime_type || f.type),
+            badge: getFileType(f.mime_type || f.type).charAt(0).toUpperCase() + getFileType(f.mime_type || f.type).slice(1),
+            badgeClass: getBadgeClass(f.mime_type || f.type),
+            searchableText: f.filename + ' ' + (f.folderName || ''),
+            folder: f.folderName,
+            folderId: f.folderId,
+            size: f.size ? formatFileSize(f.size) : null,
+            created_at: f.created_at,
+            isFile: true,
+            file_path: f.file_path,
+            mime_type: f.mime_type,
+            type: f.type
+        }));
+
+        searchableItems = [...folderItems, ...fileItems];
+        updateSearchCounts();
+        
+        if (!document.getElementById('search-view').classList.contains('hidden')) {
+            performSearch();
+        }
+    } catch (err) {
+        console.error('Failed to initialize search:', err);
+    }
+}
+
+function getFileType(mimeType) {
+    if (!mimeType) return 'other';
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    return 'other';
+}
+
+function getIconForType(mimeType) {
+    const type = getFileType(mimeType);
+    const icons = {
+        image: 'fa-image',
+        audio: 'fa-music',
+        video: 'fa-video',
+        folder: 'fa-folder',
+        other: 'fa-file'
+    };
+    return icons[type] || 'fa-file';
+}
+
+function getBadgeClass(mimeType) {
+    const type = getFileType(mimeType);
+    const classes = {
+        folder: 'folder-badge',
+        image: 'image-badge',
+        audio: 'audio-badge',
+        video: 'video-badge',
+        other: 'other-badge'
+    };
+    return classes[type] || 'other-badge';
+}
+
+function performSearch() {
+    const input = document.getElementById('search-input-main');
+    if (!input) return;
+    
+    searchTerm = input.value.trim();
+    
+    const clearBtn = document.getElementById('clear-search');
+    if (clearBtn) {
+        clearBtn.classList.toggle('visible', searchTerm.length > 0);
+    }
+
+    const results = filterSearchItems();
+    renderSearchResults(results);
+    updateSearchStats(results.length);
+}
+
+function filterSearchItems() {
+    let filtered = searchableItems;
+
+    if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        filtered = filtered.filter(item => 
+            item.searchableText.toLowerCase().includes(term)
+        );
+    }
+
+    if (currentFilter !== 'all') {
+        filtered = filtered.filter(item => {
+            if (currentFilter === 'folders') return item.isFolder;
+            return item.displayType === currentFilter;
+        });
+    }
+
+    return filtered;
+}
+
+function renderSearchResults(results) {
+    const container = document.getElementById('search-results');
+    if (!container) return;
+    
+    if (results.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 80px 20px; color: #94a3b8;">
+                <i class="fas fa-search" style="font-size: 64px; margin-bottom: 16px; opacity: 0.3;"></i>
+                <h3 style="color: #475569;">No results found</h3>
+                <p>Try adjusting your search terms or filters</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = results.map(item => {
+        if (item.isFolder) {
+            return `
+                <div class="search-result-card" onclick="openSearchItem('${item.id}', true)">
+                    <div class="folder-thumbnail" style="aspect-ratio: 16/9; background: linear-gradient(135deg, #e0e7ff, #c7d2fe);">
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 64px;">📁</div>
+                            <div style="font-weight: 600; margin-top: 8px; font-size: 16px;">${highlightMatch(item.name)}</div>
+                            <div style="font-size: 13px; color: #64748b; margin-top: 4px;">${item.file_count || 0} files</div>
+                        </div>
+                    </div>
+                    <div class="info">
+                        <div class="name">${highlightMatch(item.name)}</div>
+                        <div class="meta">
+                            <span><i class="fas fa-cubes"></i> ${item.file_count || 0} items</span>
+                            <span><i class="fas fa-calendar"></i> ${item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}</span>
+                        </div>
+                    </div>
+                    <span class="badge folder-badge">Folder</span>
+                </div>
+            `;
+        } else {
+            // File card with thumbnail
+            let thumbnailHtml = '';
+            const fileType = getFileType(item.mime_type);
+            
+            if (fileType === 'image' && item.file_path) {
+                thumbnailHtml = `<img src="${item.file_path}" alt="${escapeHtml(item.name)}" loading="lazy">`;
+            } else if (fileType === 'video' && item.file_path) {
+                thumbnailHtml = `
+                    <video muted>
+                        <source src="${item.file_path}" type="${item.mime_type}">
+                    </video>
+                `;
+            } else if (fileType === 'audio' && item.file_path) {
+                thumbnailHtml = `
+                    <div style="display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #fce7f3, #fbcfe8);">
+                        <i class="fas fa-music" style="font-size: 64px; color: #9d174d;"></i>
+                    </div>
+                `;
+            } else {
+                thumbnailHtml = `
+                    <div style="display: flex; align-items: center; justify-content: center; background: #f1f5f9;">
+                        <i class="fas fa-file" style="font-size: 64px; color: #94a3b8;"></i>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="search-result-card" onclick="openSearchItem('${item.id}', false)">
+                    <div class="thumbnail">
+                        ${thumbnailHtml}
+                    </div>
+                    <div class="info">
+                        <div class="name">${highlightMatch(item.name)}</div>
+                        <div class="meta">
+                            <span><i class="fas fa-tag"></i> ${item.folder || 'Root'}</span>
+                            ${item.size ? `<span><i class="fas fa-weight-hanging"></i> ${item.size}</span>` : ''}
+                            <span><i class="fas fa-calendar"></i> ${item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}</span>
+                        </div>
+                    </div>
+                    <span class="badge ${item.badgeClass}">${item.badge}</span>
+                </div>
+            `;
+        }
+    }).join('');
+}
+
+function highlightMatch(text) {
+    if (!searchTerm || !text) return escapeHtml(text);
+    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return escapeHtml(text).replace(regex, '<span class="highlight">$1</span>');
+}
+
+function setFilter(filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+    performSearch();
+}
+
+function updateSearchCounts() {
+    const counts = {
+        all: searchableItems.length,
+        folders: searchableItems.filter(i => i.isFolder).length,
+        image: searchableItems.filter(i => i.displayType === 'image').length,
+        audio: searchableItems.filter(i => i.displayType === 'audio').length,
+        video: searchableItems.filter(i => i.displayType === 'video').length,
+    };
+
+    Object.keys(counts).forEach(key => {
+        const el = document.getElementById(`count-${key}`);
+        if (el) el.textContent = counts[key];
+    });
+}
+
+function updateSearchStats(count) {
+    const infoEl = document.getElementById('results-info');
+    const timeEl = document.getElementById('search-time');
+    if (infoEl) infoEl.innerHTML = `Found <strong>${count}</strong> results`;
+    if (timeEl) timeEl.textContent = `⏱ ${new Date().toLocaleTimeString()}`;
+}
+
+function clearSearch() {
+    const input = document.getElementById('search-input-main');
+    if (input) {
+        input.value = '';
+        document.getElementById('clear-search').classList.remove('visible');
+        performSearch();
+        input.focus();
+    }
+}
+
+async function openSearchItem(id, isFolder) {
+    if (isFolder) {
+        const folder = searchableItems.find(item => item.id === id && item.isFolder);
+        if (folder) {
+            openFolder(folder.id, folder.name);
+        }
+    } else {
+        const file = searchableItems.find(item => item.id === id && item.isFile);
+        if (file && file.folderId) {
+            const folder = searchableItems.find(item => item.isFolder && item.id === file.folderId);
+            if (folder) {
+                openFolder(folder.id, folder.name);
+                showToast(`📁 ${file.name} in ${folder.name}`, false);
+            }
+        }
+    }
+}
+
+function showSearchPage() {
+    document.getElementById('folders-view').classList.add('hidden');
+    document.getElementById('folder-detail-view').classList.add('hidden');
+    document.getElementById('search-view').classList.remove('hidden');
+    
+    document.getElementById('nav-folders').classList.remove('active');
+    document.getElementById('nav-search').classList.add('active');
+    
+    initSearch();
+    
+    setTimeout(() => {
+        document.getElementById('search-input-main').focus();
+    }, 100);
+}
+
+function showAllFolders() {
+    document.getElementById('folders-view').classList.remove('hidden');
+    document.getElementById('folder-detail-view').classList.add('hidden');
+    document.getElementById('search-view').classList.add('hidden');
+    
+    document.getElementById('nav-folders').classList.add('active');
+    document.getElementById('nav-search').classList.remove('active');
+    
+    loadFolders();
+}
+
+function handleSearch(event) {
+    const term = event.target.value;
+    if (term && term.length > 0) {
+        const searchView = document.getElementById('search-view');
+        if (searchView.classList.contains('hidden')) {
+            showSearchPage();
+        }
+        const mainInput = document.getElementById('search-input-main');
+        if (mainInput) {
+            mainInput.value = term;
+            performSearch();
+        }
+    }
+}
+
+// ==================== VOICE RECORDING ====================
+async function startRecording() {
+    const recordBtn = document.getElementById('record-btn');
+    if (isRecording) {
+        mediaRecorder.stop();
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            uploadRecordedVoice(audioBlob);
+            stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        recordBtn.innerHTML = `<i class="fas fa-stop"></i> Stop Recording`;
+        recordBtn.style.backgroundColor = '#ef4444';
+        showToast('🎤 Recording... Speak now');
+    } catch (err) {
+        showToast('Microphone access denied', true);
+    }
+}
+
+async function uploadRecordedVoice(audioBlob) {
+    if (!currentFolderId) return;
+    const formData = new FormData();
+    formData.append('files', audioBlob, `Voice-Note-${Date.now()}.webm`);
+
+    const progress = document.getElementById('upload-progress');
+    progress.classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/api/folders/${currentFolderId}/files`, {
+            method: 'POST',
+            body: formData
+        });
+        if (res.ok) {
+            showToast('✅ Voice note uploaded');
+            loadFiles(currentFolderId);
+            setTimeout(initSearch, 500);
+        }
+    } catch (e) {
+        showToast('Upload failed', true);
+    } finally {
+        progress.classList.add('hidden');
+        resetRecordButton();
+    }
+}
+
+function resetRecordButton() {
+    const btn = document.getElementById('record-btn');
+    btn.innerHTML = `<i class="fas fa-microphone"></i> Record Voice`;
+    btn.style.backgroundColor = '';
+    isRecording = false;
 }
 
 // ==================== FOLDERS ====================
@@ -61,7 +446,7 @@ async function loadFolders() {
             card.innerHTML = `
                 <div class="folder-icon">📁</div>
                 <h3>${escapeHtml(folder.name)}</h3>
-                <div class="meta">${folder.image_count || 0} images • ${new Date(folder.created_at).toLocaleDateString()}</div>
+                <div class="meta">${folder.file_count || 0} files • ${new Date(folder.created_at).toLocaleDateString()}</div>
                 <div class="delete-folder-btn" onclick="event.stopImmediatePropagation(); deleteFolder(${folder.id});">
                     <i class="fas fa-trash"></i>
                 </div>
@@ -93,17 +478,19 @@ async function createFolder() {
         closeModal();
         showToast('Folder created successfully');
         loadFolders();
+        setTimeout(initSearch, 500);
     } catch (e) {
         showToast(e.message, true);
     }
 }
 
 async function deleteFolder(id) {
-    if (!confirm('Delete this folder and ALL images?')) return;
+    if (!confirm('Delete this folder and ALL files?')) return;
     try {
         await apiRequest(`/api/folders/${id}`, { method: 'DELETE' });
         showToast('Folder deleted');
         loadFolders();
+        setTimeout(initSearch, 500);
     } catch (e) {
         showToast('Failed to delete folder', true);
     }
@@ -115,8 +502,9 @@ function openFolder(id, name) {
     currentFolderName = name;
     document.getElementById('folders-view').classList.add('hidden');
     document.getElementById('folder-detail-view').classList.remove('hidden');
+    document.getElementById('search-view').classList.add('hidden');
     document.getElementById('current-folder-name').textContent = name;
-    loadImages(id);
+    loadFiles(id);
 }
 
 function goBackToFolders() {
@@ -126,53 +514,69 @@ function goBackToFolders() {
     loadFolders();
 }
 
-// ==================== IMAGES WITH INLINE EDIT ====================
-async function loadImages(folderId) {
+// ==================== LOAD FILES ====================
+async function loadFiles(folderId) {
     try {
-        const images = await apiRequest(`/api/folders/${folderId}/images`);
-        const grid = document.getElementById('images-grid');
+        const files = await apiRequest(`/api/folders/${folderId}/files`);
+        const grid = document.getElementById('files-grid');
         grid.innerHTML = '';
 
-        if (images.length === 0) {
+        if (files.length === 0) {
             grid.innerHTML = `
                 <div style="grid-column: 1/-1; text-align: center; padding: 80px 20px; color: #64748b;">
-                    <i class="fas fa-images" style="font-size: 72px; margin-bottom: 20px; opacity: 0.3;"></i>
-                    <h3>No images yet</h3>
-                    <p>Upload some images to this folder</p>
+                    <i class="fas fa-folder-open" style="font-size: 72px; margin-bottom: 20px; opacity: 0.3;"></i>
+                    <h3>No files yet</h3>
+                    <p>Upload images, videos or record voice notes</p>
                 </div>`;
             return;
         }
 
-        images.forEach(img => {
+        files.forEach(file => {
             const card = document.createElement('div');
-            card.className = 'image-card';
-            
-            card.innerHTML = `
-                <img src="${img.file_path}" alt="${escapeHtml(img.filename)}" loading="lazy">
-                <div class="image-info">
-                    <span class="filename" data-id="${img.id}">${escapeHtml(img.filename)}</span>
-                    <span class="rename-btn" title="Rename">✎</span>
-                </div>
-                <div class="delete-image-btn" title="Delete">
-                    <i class="fas fa-times"></i>
-                </div>
-            `;
+            card.className = 'file-card';
 
-            // Click on filename to edit inline
-            const filenameSpan = card.querySelector('.filename');
-            filenameSpan.addEventListener('click', (e) => {
-                e.stopImmediatePropagation();
-                makeFilenameEditable(filenameSpan, img.id);
-            });
+            if (file.type === 'video' || file.mime_type?.startsWith('video/')) {
+                card.innerHTML = `
+                    <video controls>
+                        <source src="${file.file_path}" type="${file.mime_type}">
+                    </video>
+                    <div class="file-info">
+                        <span class="filename" data-id="${file.id}">${escapeHtml(file.filename)}</span>
+                    </div>
+                    <div class="delete-btn"><i class="fas fa-times"></i></div>
+                `;
+            } else if (file.type === 'audio' || file.mime_type?.startsWith('audio/')) {
+                card.innerHTML = `
+                    <div class="audio-card">
+                        <i class="fas fa-microphone audio-icon"></i>
+                        <div class="audio-info">
+                            <span class="filename" data-id="${file.id}">${escapeHtml(file.filename)}</span>
+                            <audio controls src="${file.file_path}"></audio>
+                        </div>
+                    </div>
+                    <div class="delete-btn"><i class="fas fa-times"></i></div>
+                `;
+            } else {
+                card.innerHTML = `
+                    <img src="${file.file_path}" alt="${escapeHtml(file.filename)}" loading="lazy">
+                    <div class="file-info">
+                        <span class="filename" data-id="${file.id}">${escapeHtml(file.filename)}</span>
+                    </div>
+                    <div class="delete-btn"><i class="fas fa-times"></i></div>
+                `;
+            }
 
-            card.querySelector('.rename-btn').addEventListener('click', (e) => {
-                e.stopImmediatePropagation();
-                makeFilenameEditable(filenameSpan, img.id);
-            });
+            const nameSpan = card.querySelector('.filename');
+            if (nameSpan) {
+                nameSpan.addEventListener('click', (e) => {
+                    e.stopImmediatePropagation();
+                    makeFilenameEditable(nameSpan, file.id);
+                });
+            }
 
-            card.querySelector('.delete-image-btn').addEventListener('click', (e) => {
+            card.querySelector('.delete-btn').addEventListener('click', (e) => {
                 e.stopImmediatePropagation();
-                deleteImage(img.id);
+                deleteFile(file.id);
             });
 
             grid.appendChild(card);
@@ -182,60 +586,61 @@ async function loadImages(folderId) {
     }
 }
 
-function makeFilenameEditable(span, imageId) {
+function makeFilenameEditable(span, fileId) {
     const oldName = span.textContent;
     const input = document.createElement('input');
-    input.type = 'text';
     input.value = oldName;
-    input.style.width = '100%';
-    input.style.fontSize = '13px';
-    input.style.padding = '2px 4px';
+    input.style.width = "100%";
+    input.style.fontSize = "13px";
+    input.style.padding = "4px";
+    input.className = "filename-input";
 
     span.replaceWith(input);
     input.focus();
     input.select();
 
     const save = async () => {
-        let newName = input.value.trim();
+        const newName = input.value.trim();
         if (newName && newName !== oldName) {
-            await renameImage(imageId, newName);
-        } else {
-            input.replaceWith(span);
+            await renameFile(fileId, newName);
         }
+        input.replaceWith(span);
     };
 
-    input.addEventListener('blur', save);
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') save();
-        if (e.key === 'Escape') input.replaceWith(span);
-    });
+    input.onblur = save;
+    input.onkeydown = (e) => {
+        if (e.key === "Enter") save();
+        if (e.key === "Escape") input.replaceWith(span);
+    };
 }
 
-async function renameImage(id, newName) {
+async function renameFile(id, newName) {
     try {
-        const res = await fetch(`/api/images/${id}/rename`, {
+        const res = await fetch(`/api/files/${id}/rename`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newName: newName.trim() })
+            body: JSON.stringify({ newName })
         });
 
-        if (!res.ok) throw new Error(await res.text());
-
-        showToast('✅ Image renamed successfully (file updated on disk)');
-        loadImages(currentFolderId);
+        if (res.ok) {
+            showToast('✅ Name updated successfully');
+            loadFiles(currentFolderId);
+            setTimeout(initSearch, 500);
+        }
     } catch (e) {
-        showToast(e.message || 'Failed to rename image', true);
+        showToast('Failed to rename file', true);
     }
 }
 
-async function deleteImage(id) {
-    if (!confirm('Delete this image permanently?')) return;
+async function deleteFile(id) {
+    if (!confirm('Delete this file permanently?')) return;
     try {
-        await apiRequest(`/api/images/${id}`, { method: 'DELETE' });
-        showToast('Image deleted');
-        loadImages(currentFolderId);
+        await apiRequest(`/api/files/${id}`, { method: 'DELETE' });
+        showToast('File deleted');
+        loadFiles(currentFolderId);
+        setTimeout(initSearch, 500);
     } catch (e) {
-        showToast('Failed to delete image', true);
+        showToast('Failed to delete file', true);
     }
 }
 
@@ -243,70 +648,77 @@ function triggerUpload() {
     document.getElementById('file-input').click();
 }
 
-// Upload Handler
 document.getElementById('file-input').addEventListener('change', async (e) => {
     const files = e.target.files;
     if (!files.length || !currentFolderId) return;
-    if (files.length > 40) return showToast('Maximum 40 images allowed', true);
 
     const formData = new FormData();
-    for (let file of files) formData.append('images', file);
+    for (let file of files) formData.append('files', file);
 
-    const progressContainer = document.getElementById('upload-progress');
-    const progressFill = document.getElementById('progress-fill');
-    const progressText = document.getElementById('progress-text');
-    
-    progressContainer.classList.remove('hidden');
-    progressFill.style.width = '0%';
+    const progress = document.getElementById('upload-progress');
+    progress.classList.remove('hidden');
 
     try {
-        const response = await fetch(`/api/folders/${currentFolderId}/images`, {
+        const res = await fetch(`/api/folders/${currentFolderId}/files`, {
             method: 'POST',
             body: formData
         });
-
-        if (!response.ok) throw new Error('Upload failed');
-
-        progressFill.style.width = '100%';
-        progressText.textContent = 'Upload complete!';
-
-        setTimeout(() => {
-            progressContainer.classList.add('hidden');
-            loadImages(currentFolderId);
-            showToast(`Successfully uploaded ${files.length} image(s)`);
-        }, 800);
+        if (res.ok) {
+            showToast(`Successfully uploaded ${files.length} file(s)`);
+            loadFiles(currentFolderId);
+            setTimeout(initSearch, 500);
+        }
     } catch (err) {
-        progressContainer.classList.add('hidden');
-        showToast(err.message || 'Upload failed', true);
+        showToast('Upload failed', true);
+    } finally {
+        progress.classList.add('hidden');
+        e.target.value = '';
     }
-
-    e.target.value = '';
 });
 
 function downloadCurrentFolder() {
     if (!currentFolderId) return;
-    showToast('Preparing ZIP download...');
     window.location.href = `/api/folders/${currentFolderId}/download`;
 }
 
 async function deleteCurrentFolder() {
-    if (!currentFolderId || !confirm('Delete this folder and all images?')) return;
+    if (!currentFolderId || !confirm('Delete this folder and all files?')) return;
     try {
         await apiRequest(`/api/folders/${currentFolderId}`, { method: 'DELETE' });
         showToast('Folder deleted');
         goBackToFolders();
+        setTimeout(initSearch, 500);
     } catch (e) {
         showToast('Delete failed', true);
     }
 }
 
-// Initialize
+// ==================== KEYBOARD SHORTCUTS ====================
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchView = document.getElementById('search-view');
+        if (searchView.classList.contains('hidden')) {
+            showSearchPage();
+        } else {
+            document.getElementById('search-input-main').focus();
+        }
+    }
+    if (e.key === 'Escape') {
+        const searchView = document.getElementById('search-view');
+        if (!searchView.classList.contains('hidden')) {
+            const input = document.getElementById('search-input-main');
+            if (input && input.value) {
+                clearSearch();
+            } else {
+                showAllFolders();
+            }
+        }
+    }
+});
+
+// ==================== INITIALIZATION ====================
 window.onload = () => {
     loadFolders();
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
-        }
-    });
+    setTimeout(initSearch, 500);
 };
