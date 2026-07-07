@@ -1,4 +1,4 @@
-// public/script.js - COMPLETE & FIXED with Search
+// ==================== STATE ====================
 let currentFolderId = null;
 let currentFolderName = '';
 let mediaRecorder = null;
@@ -11,6 +11,7 @@ let searchTerm = '';
 // ==================== HELPERS ====================
 function showToast(message, isError = false) {
     const toast = document.getElementById('toast');
+    if (!toast) return;
     toast.textContent = message;
     toast.style.background = isError ? '#ef4444' : '#1e2937';
     toast.style.display = 'flex';
@@ -35,14 +36,18 @@ function formatFileSize(bytes) {
     return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
 }
 
-// API Helper
+// API Helper - FIXED for Vercel
 async function apiRequest(url, options = {}) {
     try {
+        const headers = options.body ? { 'Content-Type': 'application/json' } : {};
         const response = await fetch(url, {
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             ...options
         });
-        if (!response.ok) throw new Error(await response.text());
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Request failed');
+        }
         return response.json();
     } catch (err) {
         showToast(err.message, true);
@@ -56,8 +61,16 @@ async function initSearch() {
         const folders = await apiRequest('/api/folders');
         let allFiles = [];
         for (const folder of folders) {
-            const files = await apiRequest(`/api/folders/${folder.id}/files`);
-            allFiles = allFiles.concat(files.map(f => ({ ...f, folderName: folder.name, folderId: folder.id })));
+            try {
+                const files = await apiRequest(`/api/folders/${folder.id}/images`);
+                allFiles = allFiles.concat(files.map(f => ({ 
+                    ...f, 
+                    folderName: folder.name, 
+                    folderId: folder.id 
+                })));
+            } catch (e) {
+                // Folder might have no images
+            }
         }
         
         const folderItems = folders.map(f => ({
@@ -68,35 +81,38 @@ async function initSearch() {
             badge: 'Folder',
             badgeClass: 'folder-badge',
             searchableText: f.name,
-            file_count: f.file_count || 0,
+            file_count: f.image_count || 0,
             created_at: f.created_at,
             isFolder: true,
             file_path: null,
-            mime_type: null
+            mime_type: null,
+            _id: f.id
         }));
 
         const fileItems = allFiles.map(f => ({
             id: f.id,
             name: f.filename,
-            displayType: getFileType(f.mime_type || f.type),
-            icon: getIconForType(f.mime_type || f.type),
-            badge: getFileType(f.mime_type || f.type).charAt(0).toUpperCase() + getFileType(f.mime_type || f.type).slice(1),
-            badgeClass: getBadgeClass(f.mime_type || f.type),
+            displayType: getFileType(f.mime_type),
+            icon: getIconForType(f.mime_type),
+            badge: getFileType(f.mime_type).charAt(0).toUpperCase() + getFileType(f.mime_type).slice(1),
+            badgeClass: getBadgeClass(f.mime_type),
             searchableText: f.filename + ' ' + (f.folderName || ''),
             folder: f.folderName,
             folderId: f.folderId,
-            size: f.size ? formatFileSize(f.size) : null,
-            created_at: f.created_at,
+            size: f.file_size ? formatFileSize(f.file_size) : null,
+            created_at: f.uploaded_at || f.created_at,
             isFile: true,
-            file_path: f.file_path,
+            file_path: f.url || f.file_path,
             mime_type: f.mime_type,
-            type: f.type
+            type: f.mime_type,
+            _id: f.id
         }));
 
         searchableItems = [...folderItems, ...fileItems];
         updateSearchCounts();
         
-        if (!document.getElementById('search-view').classList.contains('hidden')) {
+        const searchView = document.getElementById('search-view');
+        if (searchView && !searchView.classList.contains('hidden')) {
             performSearch();
         }
     } catch (err) {
@@ -191,7 +207,7 @@ function renderSearchResults(results) {
         if (item.isFolder) {
             return `
                 <div class="search-result-card" onclick="openSearchItem('${item.id}', true)">
-                    <div class="folder-thumbnail" style="aspect-ratio: 16/9; background: linear-gradient(135deg, #e0e7ff, #c7d2fe);">
+                    <div class="folder-thumbnail" style="aspect-ratio: 16/9; background: linear-gradient(135deg, #e0e7ff, #c7d2fe); display: flex; align-items: center; justify-content: center;">
                         <div style="text-align: center; padding: 20px;">
                             <div style="font-size: 64px;">📁</div>
                             <div style="font-weight: 600; margin-top: 8px; font-size: 16px;">${highlightMatch(item.name)}</div>
@@ -209,35 +225,34 @@ function renderSearchResults(results) {
                 </div>
             `;
         } else {
-            // File card with thumbnail
             let thumbnailHtml = '';
             const fileType = getFileType(item.mime_type);
             
             if (fileType === 'image' && item.file_path) {
-                thumbnailHtml = `<img src="${item.file_path}" alt="${escapeHtml(item.name)}" loading="lazy">`;
+                thumbnailHtml = `<img src="${item.file_path}" alt="${escapeHtml(item.name)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`;
             } else if (fileType === 'video' && item.file_path) {
                 thumbnailHtml = `
-                    <video muted>
+                    <video muted style="width:100%;height:100%;object-fit:cover;">
                         <source src="${item.file_path}" type="${item.mime_type}">
                     </video>
                 `;
             } else if (fileType === 'audio' && item.file_path) {
                 thumbnailHtml = `
-                    <div style="display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #fce7f3, #fbcfe8);">
-                        <i class="fas fa-music" style="font-size: 64px; color: #9d174d;"></i>
+                    <div style="display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #fce7f3, #fbcfe8); width:100%;height:100%;">
+                        <i class="fas fa-music" style="font-size: 48px; color: #9d174d;"></i>
                     </div>
                 `;
             } else {
                 thumbnailHtml = `
-                    <div style="display: flex; align-items: center; justify-content: center; background: #f1f5f9;">
-                        <i class="fas fa-file" style="font-size: 64px; color: #94a3b8;"></i>
+                    <div style="display: flex; align-items: center; justify-content: center; background: #f1f5f9; width:100%;height:100%;">
+                        <i class="fas fa-file" style="font-size: 48px; color: #94a3b8;"></i>
                     </div>
                 `;
             }
 
             return `
                 <div class="search-result-card" onclick="openSearchItem('${item.id}', false)">
-                    <div class="thumbnail">
+                    <div class="thumbnail" style="aspect-ratio:1; overflow:hidden; background:#f1f5f9;">
                         ${thumbnailHtml}
                     </div>
                     <div class="info">
@@ -295,7 +310,8 @@ function clearSearch() {
     const input = document.getElementById('search-input-main');
     if (input) {
         input.value = '';
-        document.getElementById('clear-search').classList.remove('visible');
+        const clearBtn = document.getElementById('clear-search');
+        if (clearBtn) clearBtn.classList.remove('visible');
         performSearch();
         input.focus();
     }
@@ -320,27 +336,40 @@ async function openSearchItem(id, isFolder) {
 }
 
 function showSearchPage() {
-    document.getElementById('folders-view').classList.add('hidden');
-    document.getElementById('folder-detail-view').classList.add('hidden');
-    document.getElementById('search-view').classList.remove('hidden');
+    const foldersView = document.getElementById('folders-view');
+    const folderDetailView = document.getElementById('folder-detail-view');
+    const searchView = document.getElementById('search-view');
     
-    document.getElementById('nav-folders').classList.remove('active');
-    document.getElementById('nav-search').classList.add('active');
+    if (foldersView) foldersView.classList.add('hidden');
+    if (folderDetailView) folderDetailView.classList.add('hidden');
+    if (searchView) searchView.classList.remove('hidden');
+    
+    const navFolders = document.getElementById('nav-folders');
+    const navSearch = document.getElementById('nav-search');
+    if (navFolders) navFolders.classList.remove('active');
+    if (navSearch) navSearch.classList.add('active');
     
     initSearch();
     
     setTimeout(() => {
-        document.getElementById('search-input-main').focus();
+        const input = document.getElementById('search-input-main');
+        if (input) input.focus();
     }, 100);
 }
 
 function showAllFolders() {
-    document.getElementById('folders-view').classList.remove('hidden');
-    document.getElementById('folder-detail-view').classList.add('hidden');
-    document.getElementById('search-view').classList.add('hidden');
+    const foldersView = document.getElementById('folders-view');
+    const folderDetailView = document.getElementById('folder-detail-view');
+    const searchView = document.getElementById('search-view');
     
-    document.getElementById('nav-folders').classList.add('active');
-    document.getElementById('nav-search').classList.remove('active');
+    if (foldersView) foldersView.classList.remove('hidden');
+    if (folderDetailView) folderDetailView.classList.add('hidden');
+    if (searchView) searchView.classList.add('hidden');
+    
+    const navFolders = document.getElementById('nav-folders');
+    const navSearch = document.getElementById('nav-search');
+    if (navFolders) navFolders.classList.add('active');
+    if (navSearch) navSearch.classList.remove('active');
     
     loadFolders();
 }
@@ -349,7 +378,7 @@ function handleSearch(event) {
     const term = event.target.value;
     if (term && term.length > 0) {
         const searchView = document.getElementById('search-view');
-        if (searchView.classList.contains('hidden')) {
+        if (searchView && searchView.classList.contains('hidden')) {
             showSearchPage();
         }
         const mainInput = document.getElementById('search-input-main');
@@ -393,13 +422,13 @@ async function startRecording() {
 async function uploadRecordedVoice(audioBlob) {
     if (!currentFolderId) return;
     const formData = new FormData();
-    formData.append('files', audioBlob, `Voice-Note-${Date.now()}.webm`);
+    formData.append('images', audioBlob, `Voice-Note-${Date.now()}.webm`);
 
     const progress = document.getElementById('upload-progress');
-    progress.classList.remove('hidden');
+    if (progress) progress.classList.remove('hidden');
 
     try {
-        const res = await fetch(`/api/folders/${currentFolderId}/files`, {
+        const res = await fetch(`/api/folders/${currentFolderId}/images`, {
             method: 'POST',
             body: formData
         });
@@ -407,19 +436,24 @@ async function uploadRecordedVoice(audioBlob) {
             showToast('✅ Voice note uploaded');
             loadFiles(currentFolderId);
             setTimeout(initSearch, 500);
+        } else {
+            const error = await res.text();
+            showToast('Upload failed: ' + error, true);
         }
     } catch (e) {
         showToast('Upload failed', true);
     } finally {
-        progress.classList.add('hidden');
+        if (progress) progress.classList.add('hidden');
         resetRecordButton();
     }
 }
 
 function resetRecordButton() {
     const btn = document.getElementById('record-btn');
-    btn.innerHTML = `<i class="fas fa-microphone"></i> Record Voice`;
-    btn.style.backgroundColor = '';
+    if (btn) {
+        btn.innerHTML = `<i class="fas fa-microphone"></i> Record Voice`;
+        btn.style.backgroundColor = '';
+    }
     isRecording = false;
 }
 
@@ -428,6 +462,7 @@ async function loadFolders() {
     try {
         const folders = await apiRequest('/api/folders');
         const grid = document.getElementById('folders-grid');
+        if (!grid) return;
         grid.innerHTML = '';
 
         if (folders.length === 0) {
@@ -446,8 +481,8 @@ async function loadFolders() {
             card.innerHTML = `
                 <div class="folder-icon">📁</div>
                 <h3>${escapeHtml(folder.name)}</h3>
-                <div class="meta">${folder.file_count || 0} files • ${new Date(folder.created_at).toLocaleDateString()}</div>
-                <div class="delete-folder-btn" onclick="event.stopImmediatePropagation(); deleteFolder(${folder.id});">
+                <div class="meta">${folder.image_count || 0} files • ${new Date(folder.created_at).toLocaleDateString()}</div>
+                <div class="delete-folder-btn" onclick="event.stopImmediatePropagation(); deleteFolder('${folder.id}');">
                     <i class="fas fa-trash"></i>
                 </div>
             `;
@@ -456,17 +491,22 @@ async function loadFolders() {
         });
     } catch (e) {
         console.error(e);
+        showToast('Failed to load folders', true);
     }
 }
 
 function showCreateFolderModal() {
-    document.getElementById('create-folder-modal').classList.remove('hidden');
-    document.getElementById('folder-name-input').focus();
+    const modal = document.getElementById('create-folder-modal');
+    const input = document.getElementById('folder-name-input');
+    if (modal) modal.classList.remove('hidden');
+    if (input) input.focus();
 }
 
 function closeModal() {
-    document.getElementById('create-folder-modal').classList.add('hidden');
-    document.getElementById('folder-name-input').value = '';
+    const modal = document.getElementById('create-folder-modal');
+    const input = document.getElementById('folder-name-input');
+    if (modal) modal.classList.add('hidden');
+    if (input) input.value = '';
 }
 
 async function createFolder() {
@@ -474,7 +514,10 @@ async function createFolder() {
     if (!name) return showToast('Folder name is required', true);
 
     try {
-        await apiRequest('/api/folders', { method: 'POST', body: JSON.stringify({ name }) });
+        await apiRequest('/api/folders', { 
+            method: 'POST', 
+            body: JSON.stringify({ name }) 
+        });
         closeModal();
         showToast('Folder created successfully');
         loadFolders();
@@ -500,25 +543,37 @@ async function deleteFolder(id) {
 function openFolder(id, name) {
     currentFolderId = id;
     currentFolderName = name;
-    document.getElementById('folders-view').classList.add('hidden');
-    document.getElementById('folder-detail-view').classList.remove('hidden');
-    document.getElementById('search-view').classList.add('hidden');
-    document.getElementById('current-folder-name').textContent = name;
+    
+    const foldersView = document.getElementById('folders-view');
+    const folderDetailView = document.getElementById('folder-detail-view');
+    const searchView = document.getElementById('search-view');
+    const folderNameEl = document.getElementById('current-folder-name');
+    
+    if (foldersView) foldersView.classList.add('hidden');
+    if (folderDetailView) folderDetailView.classList.remove('hidden');
+    if (searchView) searchView.classList.add('hidden');
+    if (folderNameEl) folderNameEl.textContent = name;
+    
     loadFiles(id);
 }
 
 function goBackToFolders() {
     currentFolderId = null;
-    document.getElementById('folder-detail-view').classList.add('hidden');
-    document.getElementById('folders-view').classList.remove('hidden');
+    const foldersView = document.getElementById('folders-view');
+    const folderDetailView = document.getElementById('folder-detail-view');
+    
+    if (folderDetailView) folderDetailView.classList.add('hidden');
+    if (foldersView) foldersView.classList.remove('hidden');
+    
     loadFolders();
 }
 
 // ==================== LOAD FILES ====================
 async function loadFiles(folderId) {
     try {
-        const files = await apiRequest(`/api/folders/${folderId}/files`);
+        const files = await apiRequest(`/api/folders/${folderId}/images`);
         const grid = document.getElementById('files-grid');
+        if (!grid) return;
         grid.innerHTML = '';
 
         if (files.length === 0) {
@@ -534,35 +589,42 @@ async function loadFiles(folderId) {
         files.forEach(file => {
             const card = document.createElement('div');
             card.className = 'file-card';
+            const filePath = file.url || file.file_path;
 
-            if (file.type === 'video' || file.mime_type?.startsWith('video/')) {
+            if (file.mime_type?.startsWith('video/')) {
                 card.innerHTML = `
-                    <video controls>
-                        <source src="${file.file_path}" type="${file.mime_type}">
+                    <video controls style="width:100%;height:100%;object-fit:cover;">
+                        <source src="${filePath}" type="${file.mime_type}">
                     </video>
                     <div class="file-info">
                         <span class="filename" data-id="${file.id}">${escapeHtml(file.filename)}</span>
                     </div>
-                    <div class="delete-btn"><i class="fas fa-times"></i></div>
+                    <div class="delete-btn" onclick="event.stopImmediatePropagation(); deleteFile('${file.id}')">
+                        <i class="fas fa-times"></i>
+                    </div>
                 `;
-            } else if (file.type === 'audio' || file.mime_type?.startsWith('audio/')) {
+            } else if (file.mime_type?.startsWith('audio/')) {
                 card.innerHTML = `
-                    <div class="audio-card">
-                        <i class="fas fa-microphone audio-icon"></i>
-                        <div class="audio-info">
+                    <div class="audio-card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:#f8fafc;height:100%;">
+                        <i class="fas fa-microphone audio-icon" style="font-size:48px;color:#6366f1;margin-bottom:12px;"></i>
+                        <div class="audio-info" style="width:100%;">
                             <span class="filename" data-id="${file.id}">${escapeHtml(file.filename)}</span>
-                            <audio controls src="${file.file_path}"></audio>
+                            <audio controls src="${filePath}" style="width:100%;margin-top:8px;"></audio>
                         </div>
                     </div>
-                    <div class="delete-btn"><i class="fas fa-times"></i></div>
+                    <div class="delete-btn" onclick="event.stopImmediatePropagation(); deleteFile('${file.id}')">
+                        <i class="fas fa-times"></i>
+                    </div>
                 `;
             } else {
                 card.innerHTML = `
-                    <img src="${file.file_path}" alt="${escapeHtml(file.filename)}" loading="lazy">
+                    <img src="${filePath}" alt="${escapeHtml(file.filename)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">
                     <div class="file-info">
                         <span class="filename" data-id="${file.id}">${escapeHtml(file.filename)}</span>
                     </div>
-                    <div class="delete-btn"><i class="fas fa-times"></i></div>
+                    <div class="delete-btn" onclick="event.stopImmediatePropagation(); deleteFile('${file.id}')">
+                        <i class="fas fa-times"></i>
+                    </div>
                 `;
             }
 
@@ -574,15 +636,11 @@ async function loadFiles(folderId) {
                 });
             }
 
-            card.querySelector('.delete-btn').addEventListener('click', (e) => {
-                e.stopImmediatePropagation();
-                deleteFile(file.id);
-            });
-
             grid.appendChild(card);
         });
     } catch (e) {
         console.error(e);
+        showToast('Failed to load files', true);
     }
 }
 
@@ -626,6 +684,9 @@ async function renameFile(id, newName) {
             showToast('✅ Name updated successfully');
             loadFiles(currentFolderId);
             setTimeout(initSearch, 500);
+        } else {
+            const error = await res.text();
+            showToast('Rename failed: ' + error, true);
         }
     } catch (e) {
         showToast('Failed to rename file', true);
@@ -635,7 +696,7 @@ async function renameFile(id, newName) {
 async function deleteFile(id) {
     if (!confirm('Delete this file permanently?')) return;
     try {
-        await apiRequest(`/api/files/${id}`, { method: 'DELETE' });
+        await apiRequest(`/api/images/${id}`, { method: 'DELETE' });
         showToast('File deleted');
         loadFiles(currentFolderId);
         setTimeout(initSearch, 500);
@@ -645,34 +706,45 @@ async function deleteFile(id) {
 }
 
 function triggerUpload() {
-    document.getElementById('file-input').click();
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) fileInput.click();
 }
 
-document.getElementById('file-input').addEventListener('change', async (e) => {
-    const files = e.target.files;
-    if (!files.length || !currentFolderId) return;
+// File input handler
+document.addEventListener('DOMContentLoaded', function() {
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files.length || !currentFolderId) return;
 
-    const formData = new FormData();
-    for (let file of files) formData.append('files', file);
+            const formData = new FormData();
+            for (let file of files) formData.append('images', file);
 
-    const progress = document.getElementById('upload-progress');
-    progress.classList.remove('hidden');
+            const progress = document.getElementById('upload-progress');
+            if (progress) progress.classList.remove('hidden');
 
-    try {
-        const res = await fetch(`/api/folders/${currentFolderId}/files`, {
-            method: 'POST',
-            body: formData
+            try {
+                const res = await fetch(`/api/folders/${currentFolderId}/images`, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (res.ok) {
+                    const result = await res.json();
+                    showToast(`✅ Successfully uploaded ${result.uploaded || files.length} file(s)`);
+                    loadFiles(currentFolderId);
+                    setTimeout(initSearch, 500);
+                } else {
+                    const error = await res.text();
+                    showToast('Upload failed: ' + error, true);
+                }
+            } catch (err) {
+                showToast('Upload failed', true);
+            } finally {
+                if (progress) progress.classList.add('hidden');
+                e.target.value = '';
+            }
         });
-        if (res.ok) {
-            showToast(`Successfully uploaded ${files.length} file(s)`);
-            loadFiles(currentFolderId);
-            setTimeout(initSearch, 500);
-        }
-    } catch (err) {
-        showToast('Upload failed', true);
-    } finally {
-        progress.classList.add('hidden');
-        e.target.value = '';
     }
 });
 
@@ -698,15 +770,16 @@ document.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         const searchView = document.getElementById('search-view');
-        if (searchView.classList.contains('hidden')) {
+        if (searchView && searchView.classList.contains('hidden')) {
             showSearchPage();
         } else {
-            document.getElementById('search-input-main').focus();
+            const input = document.getElementById('search-input-main');
+            if (input) input.focus();
         }
     }
     if (e.key === 'Escape') {
         const searchView = document.getElementById('search-view');
-        if (!searchView.classList.contains('hidden')) {
+        if (searchView && !searchView.classList.contains('hidden')) {
             const input = document.getElementById('search-input-main');
             if (input && input.value) {
                 clearSearch();
@@ -718,7 +791,13 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ==================== INITIALIZATION ====================
-window.onload = () => {
+document.addEventListener('DOMContentLoaded', function() {
+    loadFolders();
+    setTimeout(initSearch, 500);
+});
+
+// For backward compatibility with window.onload
+window.onload = function() {
     loadFolders();
     setTimeout(initSearch, 500);
 };
