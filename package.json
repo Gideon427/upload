@@ -1,6 +1,10 @@
 {
   "name": "upload",
   "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "build": "echo 'Build completed successfully'"
+  },
   "dependencies": {
     "mongodb": "^7.4.0",
     "multer": "^1.4.5-lts.1",
